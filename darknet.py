@@ -17,6 +17,7 @@ import cv2
 from util import *
 
 
+
 def get_test_input():
     img = cv2.imread("dog-cycle-car.png")
     img = cv2.resize(img, (416, 416))           # Resize to the net's input dimension 
@@ -58,7 +59,7 @@ def create_modules(blocks):
     prev_filters = 3 # Initial input filters are 3 (RGB)
     output_filters = []
     #print("Net:\n{0}".format(net_info))
-    print(len(blocks[1:]))
+    print("Number of modules in the architecture: {}".format(len(blocks[1:])))
     for index, x in enumerate(blocks[1:]):
         module = nn.Sequential()        
         
@@ -118,17 +119,17 @@ def create_modules(blocks):
                 end = 0
 
             if start > 0:
-                start = start - index
+                start = start - index  # No need to use
             if end > 0:
-                end = end - index
+                end = end - index  # Find the gap between current index and the layers[1]'th layer
             
             route = EmptyLayer()
             module.add_module("route_{0}".format(index), route)
 
             if end < 0:
-                filters = output_filters[index + start] + output_filters[index + end]
+                filters = output_filters[index + start] + output_filters[index + end]  # When concatenating maps
             else:
-                filters = output_filters[index + start]
+                filters = output_filters[index + start]  # No concatenation requirement
         
         # Shortcut layer / skip connections
         elif x['type'] == "shortcut":
@@ -169,7 +170,7 @@ class Darknet(nn.Module):
         self.blocks = parse_cfg(cfg_filename)
         self.net_info, self.module_list = create_modules(self.blocks)
 
-    # Device agnostic code, CUDA param removed
+    # Device agnostic code; CUDA param replaced with device param
     def forward(self, x, device):
         
         modules = self.blocks[1:]
@@ -179,7 +180,7 @@ class Darknet(nn.Module):
         The keys are the the indices of the layers, and the values are the feature maps.
         """
         outputs = {}
-        write = 0
+        detections = torch.Tensor().to(device)
         for i, module in enumerate(modules):
             module_type = (module['type'])
             
@@ -190,15 +191,15 @@ class Darknet(nn.Module):
                 layers = module['layers']
                 layers = [int(a) for a in layers]
                 if layers[0] > 0:
-                    layers[0] -= i                
+                    layers[0] -= i  # Find the gap between current index and the layers[1]'th layer          
                    
-                if len(layers) == 1:
+                if len(layers) == 1: # Get outputs from previous layers
                     x = outputs[i + (layers[0])]
                 else:
                     if layers[1] > 0:
-                        layers[1] -= i
-                    map1 = outputs[i + layers[0]]
-                    map2 = outputs[i + layers[1]]
+                        layers[1] -= i  # Find the gap between current index and the layers[1]'th layer
+                    map1 = outputs[i + layers[0]]  # Gets feature maps from orig layers[0]
+                    map2 = outputs[i + layers[1]]  # Gets feature maps from orig layers[1]
 
                     x = torch.cat((map1, map2), 1)
             elif module_type == "shortcut":
@@ -216,42 +217,126 @@ class Darknet(nn.Module):
                 # Transform
                 x = x.data  
                 x = predict_transform(x, inp_dim, anchors, num_classes, device)                
-                if not write:   # if no collector has been initialized
-                    detections = x
-                    write = 1
-                else:
-                    detections = torch.cat((detections, x), 1)
-
+                
+                detections = torch.cat((detections, x), 1)  # concatenate detections @ different scales
+            # Buffer the output
             outputs[i] = x
+            # End of loop
+
         return detections                        
 
+    def load_weights(self, weights_file):
+
+        with open(weights_file, "rb") as wf:
+            header = np.fromfile(wf, dtype=np.int32, count=5)
+            self.header = torch.from_numpy(header)
+            #print(self.header, self.header.type(), self.header.shape)
+            self.seen = self.header[3]
+
+            weights = np.fromfile(wf, dtype=np.float32)
+
+            ptr = 0  # Tracking weights arrat
+            for i in range(len(self.module_list)):
+                module_type = self.blocks[i + 1]["type"]
+
+                # If module_type is convolutional load weights
+                # Else ignore
+                if module_type == "convolutional":
+                    model = self.module_list[i]
+                    try:
+                        batch_normalize = int(self.blocks[i + 1]["batch_normalize"])
+                    except:
+                        batch_normalize = 0
+                    conv = model[0]
+                    if batch_normalize:
+                        bn = model[1]
+
+                        # Get the number of biases of Batch Norm Layer
+                        num_bn_biases = bn.bias.numel()
+
+                        # Load the weights
+                        bn_biases = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                        ptr += num_bn_biases
+
+                        bn_weights = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                        ptr += num_bn_biases
+
+                        bn_running_mean = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                        ptr += num_bn_biases
+
+                        bn_running_var = torch.from_numpy(weights[ptr:ptr + num_bn_biases])
+                        ptr += num_bn_biases
+
+                        # Cast the loaded weights into dims of model weights
+                        bn_biases = bn_biases.view_as(bn.bias.data)
+                        bn_weights = bn_weights.view_as(bn.weight.data)
+                        bn_running_mean = bn_running_mean.view_as(bn.running_mean)
+                        bn_running_var = bn_running_var.view_as(bn.running_var)
+
+                        # Copy the data to model
+                        bn.bias.data.copy_(bn_biases)
+                        bn.weight.data.copy_(bn_weights)
+                        bn.running_mean.copy_(bn_running_mean)
+                        bn.running_var.copy_(bn_running_var)
+                    else:
+                        # Number of biases
+                        num_biases = conv.bias.numel()
+
+                        # Load the biases
+                        conv_biases = torch.from_numpy(weights[ptr:ptr + num_biases])
+                        ptr = ptr + num_biases
+
+                        # Reshape the loaded biases according to the dims of the model biases
+                        conv_biases = conv_biases.view_as(conv.bias.data)
+
+                        # Copy data
+                        conv.bias.data.copy_(conv_biases)
+                    
+                    # Load the conv layer weights
+                    num_wts = conv.weight.numel()
+
+                    conv_weights = torch.from_numpy(weights[ptr:ptr + num_wts])
+                    ptr += num_wts
+
+                    conv_weights = conv_weights.view_as(conv.weight.data)
+                    conv.weight.data.copy_(conv_weights)
+
+
+'''
 def main():
-    if len(sys.argv) != 2:
+    if 2 > len(sys.argv) > 3:
         sys.exit("Invalid clargs") 
     
     cfg_filename = sys.argv[1]
-    # +++ Testing code +++ #
+    print("Config file: ()".format(cfg_filename))
+    if len(sys.argv) == 3:
+        wts_file = sys.argv[2]
+        print("Weights file: {}".format(wts_file))
+        
+
+    # +++ Testing code 1 +++ #
     ''' 
-    
     all_blocks = parse_cfg(cfg_filename)    
     print(len(all_blocks))
     print(create_modules(all_blocks))
     '''
     # Device setup
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")   
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")   
         
     print("\nUsing", device, "\n")
     model = Darknet(cfg_filename)
     model.to(device)
     inputs = get_test_input()
     inputs = inputs.to(device)
+    '''
     pred = model(inputs, device)
     print(pred, pred.shape) 
-
+    '''
+    model.load_weights(wts_file)
 
 if __name__ == "__main__":
     main()
-
+'''
 
 
 
