@@ -104,7 +104,7 @@ def create_modules(blocks):
         # UPSAMPLING
         elif x['type'] == "upsample":
             stride = int(x['stride'])
-            upsample = nn.Upsample(scale_factor=2, mode="bilinear")
+            upsample = nn.Upsample(scale_factor=2, mode="nearest")
             module.add_module("upsample_{0}".format(index), upsample)
         
         # Route layer / Shortcut layers
@@ -193,9 +193,9 @@ class Darknet(nn.Module):
                 if layers[0] > 0:
                     layers[0] -= i  # Find the gap between current index and the layers[1]'th layer          
                    
-                if len(layers) == 1: # Get outputs from previous layers
+                if len(layers) == 1:  # Get outputs from previous layers
                     x = outputs[i + (layers[0])]
-                else:
+                else:  # Concatenate feature maps
                     if layers[1] > 0:
                         layers[1] -= i  # Find the gap between current index and the layers[1]'th layer
                     map1 = outputs[i + layers[0]]  # Gets feature maps from orig layers[0]
@@ -302,13 +302,13 @@ class Darknet(nn.Module):
                     conv.weight.data.copy_(conv_weights)
 
 
-'''
+
 def main():
     if 2 > len(sys.argv) > 3:
         sys.exit("Invalid clargs") 
     
     cfg_filename = sys.argv[1]
-    print("Config file: ()".format(cfg_filename))
+    print("Config file: {}".format(cfg_filename))
     if len(sys.argv) == 3:
         wts_file = sys.argv[2]
         print("Weights file: {}".format(wts_file))
@@ -328,15 +328,15 @@ def main():
     model.to(device)
     inputs = get_test_input()
     inputs = inputs.to(device)
-    '''
+    
     pred = model(inputs, device)
     print(pred, pred.shape) 
-    '''
-    model.load_weights(wts_file)
+    
+    #model.load_weights(wts_file)
 
 if __name__ == "__main__":
     main()
-'''
+
 
 
 

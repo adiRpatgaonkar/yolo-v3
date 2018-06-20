@@ -12,15 +12,19 @@ import cv2
 
 
 def predict_transform(prediction, inp_dim, anchors, num_classes, device):
+    #print(prediction.size())
     batch_size = prediction.size(0)
     stride = inp_dim // prediction.size(2)
     grid_size = inp_dim // stride
     bbox_attrs = 5 + num_classes
     num_anchors = len(anchors)
-
+    
     prediction = prediction.view(batch_size, bbox_attrs*num_anchors, grid_size*grid_size)
+    #print(prediction, prediction.size())
     prediction = prediction.transpose(1, 2).contiguous()
+    #print(prediction, prediction.size())
     prediction = prediction.view(batch_size, grid_size*grid_size*num_anchors, bbox_attrs)
+    #print(prediction, prediction.size())
     temp = []
     # Anchors are formatted in the yolov3 cfg in a weird manner
     for i, a in enumerate(anchors):
@@ -38,7 +42,7 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, device):
 
     x_offset = torch.FloatTensor(a).view(-1, 1).to(device)
     y_offset = torch.FloatTensor(b).view(-1, 1).to(device)
-
+    
     x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1, num_anchors).view(-1, 2).unsqueeze(0)
 
     prediction[:, :, :2] += x_y_offset
@@ -52,12 +56,13 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, device):
     prediction[:, :, 5:5+num_classes] = torch.sigmoid((prediction[:, :, 5:5+num_classes]))
     
     # Resize the detection maps to the size of the input image
-    prediction[:, :, :4] *= stride 
+    prediction[:, :, :4] *= stride
     return prediction    
 
 
 def write_results(prediction, confidence, num_classes, device, nms_conf=0.4):
 
+    # prediction [:, :, 0-1-2-3] = Cx, Cy, h, w
     conf_mask = (prediction[:, :, 4] > confidence).float().unsqueeze(2)
     prediction = prediction * conf_mask
 
@@ -91,11 +96,11 @@ def write_results(prediction, confidence, num_classes, device, nms_conf=0.4):
         if image_pred_.shape[0] == 0:
             continue
 
-        img_classes = unique([image_pred_[:, -1]])
+        img_classes = unique(image_pred_[:, -1])
 
         for cls in img_classes:
             # Do NMS
-            cls_mask = image_pred_ * (image_pred_[:, -1] == cls).float.unsqueeze(1)
+            cls_mask = image_pred_ * (image_pred_[:, -1] == cls).float().unsqueeze(1)
             class_mask_ind = torch.nonzero(cls_mask[:, -2]).squeeze()
             image_pred_class = image_pred_[class_mask_ind].view(-1, 7)
 
@@ -123,10 +128,12 @@ def write_results(prediction, confidence, num_classes, device, nms_conf=0.4):
                 non_zero_ind = torch.nonzero(image_pred_class[:, 4]).squeeze()
                 image_pred_class = image_pred_class[non_zero_ind].view(-1, 7)
 
-        batch_ind = image_pred_class.new(image_pred_class.size(0), 1).fill_(idx)
-        seq = batch_ind, image_pred_class
-
-        output = torch.cat(seq, 1)
+            batch_ind = image_pred_class.new(image_pred_class.size(0), 1).fill_(idx)
+            seq = batch_ind, image_pred_class
+            out = torch.cat(seq, 1)
+            output = torch.cat((output, out))
+            print(output)
+            sys.exit("Yoo")
     try:
         return output
     except:
@@ -136,9 +143,8 @@ def unique(tensor):
     tensor_np = tensor.cpu().numpy()
     unique_np = np.unique(tensor_np)
     unique_tensor = torch.from_numpy(unique_np)
-
     tensor_res = tensor.new(unique_tensor.shape)
-    tensor_np.copy_(unique_tensor)
+    tensor_res.copy_(unique_tensor)
     return tensor_res
 
 def bbox_iou(box1, box2):
@@ -154,7 +160,6 @@ def bbox_iou(box1, box2):
 
     # Intersection area
     inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(inter_rect_y2 - inter_rect_y1 + 1, min=0)
-
     # Union area
     b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
     b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
@@ -162,3 +167,35 @@ def bbox_iou(box1, box2):
     iou = inter_area / (b1_area + b2_area - inter_area)
 
     return iou
+
+def letterbox_image(img, inp_dim):
+    """resize image with unchanged aspect ratio using padding"""
+    img_w, img_h = img.shape[1], img.shape[0]
+    w, h = inp_dim
+
+    new_w = int(img_w * min(w/img_w, h/img_h))
+    new_h = int(img_h * min(w/img_w, h/img_h))
+    resized_image = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+    canvas = np.full((inp_dim[1], inp_dim[0], 3), 128)
+    canvas[(h - new_h)//2:(h - new_h)//2 + new_h, (w - new_w)//2:(w - new_w)//2 + new_w, :] = resized_image
+    return canvas
+
+def prep_image(img, inp_dim):
+    """
+    Prepare image to give an input to the neural network.
+    Should be compatible with PyTorch's nn package
+    """
+    img = (letterbox_image(img, (inp_dim, inp_dim)))
+    img = img[:, :, ::-1].transpose((2, 0, 1)).copy()
+    img = torch.from_numpy(img).float().div(255.0).unsqueeze(0)
+    return img
+
+
+def load_classes(filename):
+    with open(filename, "r") as cls_file:
+        names = cls_file.read().split("\n")[:-1]
+    return names
+
+
+
