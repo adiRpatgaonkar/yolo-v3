@@ -57,11 +57,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def write(x, results, color):
+def write(x, results):
     c1 = tuple(x[1:3].int())
     c2 = tuple(x[3:5].int())
     img = results[int(x[0])]
     cls = int(x[-1])
+    color = random.choice(colors)
     label = "{0}".format(classes[cls])
     cv2.rectangle(img, c1, c2, color, 1)
     t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 1)[0]
@@ -79,7 +80,7 @@ start = 0
 
 # Device setup
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-device = torch.device("cpu")
+
 print("\nUsing", device, "\n")
 num_classes = 80  # For COCO
 classes = load_classes("data/coco.names")
@@ -117,7 +118,6 @@ if not os.path.exists(args.det):
 load_batch = time.time()
 loaded_ims = [cv2.imread(x) for x in imlist]
 
-print(imlist)
 # PyTorch variable for images
 im_batches = list(map(prep_image, loaded_ims, [inp_dim for x in range(len(imlist))]))
 im_dim_list = [(x.shape[1], x.shape[0]) for x in loaded_ims]
@@ -139,7 +139,6 @@ im_dim_list = im_dim_list.to(device)
 # Detection loop
 start_det_loop = time.time()
 output = torch.Tensor().to(device)
-print(im_batches, im_batches[0].shape)
 for i, batch in enumerate(im_batches):
     # Load the image
     start = time.time()
@@ -175,7 +174,6 @@ for i, batch in enumerate(im_batches):
 # No detections ?
 if output.shape[0] == 0:
     sys.exit("No detections made.")
-print(im_dim_list, output)
 im_dim_list = torch.index_select(im_dim_list, 0, output[:,0].long())
 scaling_factor = torch.min(inp_dim/im_dim_list, 1)[0].view(-1, 1)
 
@@ -189,16 +187,17 @@ for i in range(output.shape[0]):
     output[i, [1, 3]] = torch.clamp(output[i, [1, 3]], 0.0, im_dim_list[i, 0])
     output[i, [2, 4]] = torch.clamp(output[i, [2, 4]], 0.0, im_dim_list[i, 1])
 
+output_recast = time.time()
 class_load = time.time()
 colors = pkl.load(open("pallete", "rb"))
 
 draw = time.time()
 
-list(map(lambda x: write(x, loaded_ims, colors), output))
+list(map(lambda x: write(x, loaded_ims), output))
 
 det_names = pd.Series(imlist).apply(lambda x: "{}/det_{}".format(args.det, x.split("/")[-1]))
 
-list(map(cv2.imwrite(), det_names, loaded_ims))
+list(map(cv2.imwrite, det_names, loaded_ims))
 end = time.time()
 
 print("SUMMARY")

@@ -1,0 +1,42 @@
+# ignore .pyc files
+**/*.pyc
+**/*.pyo
+
+# ignore pkl files
+**/*.pkl
+
+# ignore datasets
+**/data/
+
+# ignore jetbrains directories
+**/venv
+**/.idea
+
+# ignore .t7 files
+**/*.t7
+
+# ignore .zip .tar .tar.gz files
+**/*.zip
+**/*.tar
+**/*.tar.gz
+
+# ignore .swp files
+**/*.swp
+
+# ignore .DS_Store files in macOS
+**/.DS_Store
+
+# ignore buffer files
+**/*_buffer.py
+**/*.py~
+
+# ignore code editor hidden folders
+**/.vscode/
+
+# ignore output models, plots.
+**/outputs/
+
+# ignore python3's pycache
+**/__pycache__
+# Weights files (NNs)
+**/*.weights

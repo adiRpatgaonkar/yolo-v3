@@ -1,5 +1,7 @@
 from __future__ import division
 
+import sys
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -76,8 +78,8 @@ def write_results(prediction, confidence, num_classes, device, nms_conf=0.4):
     batch_size = prediction.size(0)
     
     output = torch.Tensor().to(device)
-    for idx in range(batch_size):
-        image_pred = prediction[idx]
+    for ind in range(batch_size):
+        image_pred = prediction[ind]
 
         # Confidence thresholding
         # NMS
@@ -109,7 +111,6 @@ def write_results(prediction, confidence, num_classes, device, nms_conf=0.4):
             conf_sort_index = torch.sort(image_pred_class[:, 4], descending=True)[1]
             image_pred_class = image_pred_class[conf_sort_index]
             idx = image_pred_class.size(0)  # Number of detections
-
             for i in range(idx):
                 # Get IOUs of all boxes that come after the one that we are looking at
                 # in the loop
@@ -128,12 +129,10 @@ def write_results(prediction, confidence, num_classes, device, nms_conf=0.4):
                 non_zero_ind = torch.nonzero(image_pred_class[:, 4]).squeeze()
                 image_pred_class = image_pred_class[non_zero_ind].view(-1, 7)
 
-            batch_ind = image_pred_class.new(image_pred_class.size(0), 1).fill_(idx)
+            batch_ind = image_pred_class.new(image_pred_class.size(0), 1).fill_(ind)
             seq = batch_ind, image_pred_class
             out = torch.cat(seq, 1)
             output = torch.cat((output, out))
-            print(output)
-            sys.exit("Yoo")
     try:
         return output
     except:
