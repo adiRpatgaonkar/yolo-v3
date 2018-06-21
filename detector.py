@@ -25,22 +25,29 @@ def parse_args():
 
     parser = argparse.ArgumentParser(description="YOLO v3 detection module")
 
+    parser.add_argument("--gpu", dest="cuda_id", 
+                        help="GPU id for single GPU inference. Checkout nvidia-smi first.",
+                        default=False)
+
     parser.add_argument("--images", dest="images", 
                         help="Image / Directory containing images to perform detection upon",
                         default="imgs", type=str)
-    
+
     parser.add_argument("--det", dest = 'det', 
                         help="Image / Directory to store detections to",
                         default="det", type=str)
 
     parser.add_argument("--bs", dest="bs", 
-                        help="Batch size", default=1)
+                        help="Batch size", 
+                        default=1)
 
     parser.add_argument("--confidence", dest = "confidence", 
-                        help="Object Confidence to filter predictions", default = 0.5)
+                        help="Object Confidence to filter predictions", 
+                        default=0.5)
     
     parser.add_argument("--nms_thresh", dest="nms_thresh", 
-                        help="NMS Threshhold", default = 0.4)
+                        help="NMS Threshhold", 
+                        default=0.4)
     
     parser.add_argument("--cfg", dest='cfgfile', 
                         help="Config file",
@@ -48,7 +55,7 @@ def parse_args():
     
     parser.add_argument("--weights", dest = 'weightsfile', 
                         help="weightsfile",
-                        default = "yolov3.weights", type = str)
+                        default="yolov3.weights", type = str)
     
     parser.add_argument("--reso", dest='reso', 
                         help="Input resolution of the network. Increase to increase accuracy. Decrease to increase speed",
@@ -71,6 +78,7 @@ def write(x, results):
     cv2.putText(img, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [255, 255, 255], 1)
     return img
 
+# Main code
 args = parse_args()
 images = args.images
 batch_size = int(args.bs)
@@ -79,7 +87,7 @@ nms_thresh = float(args.nms_thresh)
 start = 0
 
 # Device setup
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:" + args.cuda_id if args.cuda_id and torch.cuda.is_available() else "cpu")
 
 print("\nUsing", device, "\n")
 num_classes = 80  # For COCO
