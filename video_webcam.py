@@ -9,7 +9,6 @@ import random
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.autograd import Variable
 
 import numpy as np
@@ -61,16 +60,17 @@ def parse_args():
 
 
 def write(x, results):
+	# Draw box & class
     c1 = tuple(x[1:3].int())
     c2 = tuple(x[3:5].int())
     img = results
     cls = int(x[-1])
-    color = random.choice(colors)
+    #color = random.choice(colors)  # Looks really bad on videos
     label = "{0}".format(classes[cls])
-    cv2.rectangle(img, c1, c2, color, 1)
+    cv2.rectangle(img, c1, c2, colors[cls], 1)
     t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 1)[0]
     c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
-    cv2.rectangle(img, c1, c2, color, -1)
+    cv2.rectangle(img, c1, c2, colors[cls], -1)
     cv2.putText(img, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [255, 255, 255], 1)
     return img
 
@@ -115,14 +115,16 @@ else:
 	cap = cv2.VideoCapture(video_file)
 
 
-assert cap.isOpened(), "Cannot capture video"
+assert cap.isOpened(), "Cannot capture video/webcam feed."
 
 frames = 0
 start = time.time()
+colors = pkl.load(open("pallete", "rb"))
+
 
 while cap.isOpened():
 	cv2.namedWindow("frame", cv2.WND_PROP_FULLSCREEN)
-	cv2.setWindowProperty("frame",cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
+	cv2.setWindowProperty("frame", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 	ret, frame = cap.read()
 
 	if ret:
@@ -160,7 +162,7 @@ while cap.isOpened():
 		    output[i, [1, 3]] = torch.clamp(output[i, [1, 3]], 0.0, im_dim[i, 0])
 		    output[i, [2, 4]] = torch.clamp(output[i, [2, 4]], 0.0, im_dim[i, 1]) 
 		classes = load_classes("data/coco.names")
-		colors = pkl.load(open("pallete", "rb"))
+		
 		list(map(lambda x: write(x, frame), output))
 
 		cv2.imshow("frame", frame)
@@ -168,10 +170,12 @@ while cap.isOpened():
 		if key & 0xFF == ord('q'):
 		    break
 		frames += 1
-		print(time.time() - start)
-		print("FPS of the video is {:5.2f}".format(frames / (time.time() - start)))        
+		#print(time.time() - start)
+		print("FPS of the video is {:5.2f}".format(frames / (time.time() - start)))
+		torch.cuda.synchronize()        
 	else:
 	    break
+
 
 if device != "cpu":
     torch.cuda.empty_cache()
